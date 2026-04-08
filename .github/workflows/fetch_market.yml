@@ -1,0 +1,33 @@
+name: Fetch Market Data
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # every hour
+  workflow_dispatch:       # allow manual trigger
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch marketplace data
+        run: |
+          mkdir -p data
+          TIMESTAMP=$(date -u +"%Y-%m-%d_%H-%M")
+          curl -s https://www.milkywayidle.com/game_data/marketplace.json -o "data/${TIMESTAMP}.json"
+          echo "Fetched at ${TIMESTAMP}"
+
+      - name: Cleanup old data (keep 7 days)
+        run: |
+          find data -name "*.json" -mtime +7 -delete 2>/dev/null || true
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add data/
+          git diff --staged --quiet || git commit -m "market data $(date -u +%Y-%m-%d_%H:%M)"
+          git push
