@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MWI Market Tracker</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+            background: #001535;
+            color: #e5eaf3;
+            min-height: 100vh;
+        }
+        header {
+            background: #001428;
+            border-bottom: 1px solid #003380;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        header h1 { font-size: 20px; color: #00bb99; }
+        header .actions { display: flex; gap: 12px; align-items: center; }
+        header .actions span { font-size: 13px; color: #a3a6ad; }
+        .btn {
+            background: #00bb99; color: #001535; border: none;
+            padding: 6px 16px; border-radius: 4px; cursor: pointer;
+            font-size: 13px; font-weight: 600;
+        }
+        .btn:hover { background: #00ddb3; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+
+        /* 搜索 */
+        .search-bar { display: flex; gap: 12px; margin-bottom: 20px; }
+        .search-bar input {
+            flex: 1; padding: 10px 16px; background: #001b44;
+            border: 1px solid #003380; border-radius: 6px;
+            color: #e5eaf3; font-size: 15px; outline: none;
+        }
+        .search-bar input:focus { border-color: #00bb99; }
+
+        /* 标签页 */
+        .tabs { display: flex; gap: 0; margin-bottom: 20px; border-bottom: 1px solid #003380; }
+        .tab {
+            padding: 10px 20px; cursor: pointer; color: #a3a6ad;
+            border-bottom: 2px solid transparent; font-size: 14px;
+        }
+        .tab.active { color: #00bb99; border-bottom-color: #00bb99; }
+        .tab:hover { color: #e5eaf3; }
+
+        /* 图表 */
+        .chart-section {
+            background: #001b44; border-radius: 8px; padding: 20px; margin-bottom: 20px;
+            border: 1px solid #003380;
+        }
+        .chart-title { font-size: 16px; margin-bottom: 12px; color: #cfd3dc; display: flex; align-items: center; gap: 10px; }
+        .chart-title .icon-lg { width: 32px; height: 32px; }
+        #priceChart { width: 100%; height: 400px; }
+        #volumeChart { width: 100%; height: 200px; }
+
+        /* 表格 */
+        .table-section { background: #001b44; border-radius: 8px; overflow: hidden; border: 1px solid #003380; }
+        table { width: 100%; border-collapse: collapse; }
+        th {
+            background: #002359; padding: 12px 16px; text-align: left;
+            font-size: 13px; color: #a3a6ad; cursor: pointer; user-select: none;
+        }
+        th:hover { color: #00bb99; }
+        td { padding: 10px 16px; border-top: 1px solid #003380; font-size: 14px; }
+        tr:hover td { background: #002359; }
+        .up { color: #67c23a; }
+        .down { color: #f56c6c; }
+
+        /* 物品单元格 */
+        .item-cell {
+            display: flex; align-items: center; gap: 8px; cursor: pointer;
+        }
+        .item-cell:hover .item-zh { color: #00bb99; }
+        .item-icon { width: 28px; height: 28px; flex-shrink: 0; }
+        .item-names { display: flex; flex-direction: column; }
+        .item-zh { color: #e5eaf3; font-size: 14px; transition: color 0.15s; }
+        .item-en { color: #8d9095; font-size: 11px; }
+        .level-badge {
+            background: #00bb99; color: #001535; padding: 1px 6px;
+            border-radius: 3px; font-size: 11px; font-weight: 600; margin-left: 4px;
+        }
+
+        .loading, .empty { text-align: center; padding: 60px; color: #a3a6ad; }
+        .back-link {
+            color: #00bb99; cursor: pointer; font-size: 14px;
+            margin-bottom: 16px; display: inline-block;
+        }
+        .back-link:hover { text-decoration: underline; }
+
+        /* 分页 */
+        .pagination {
+            display: flex; justify-content: center; align-items: center;
+            gap: 8px; padding: 16px; color: #a3a6ad; font-size: 13px;
+        }
+        .pagination .btn { font-size: 12px; padding: 4px 12px; }
+
+        /* 强化等级选择器（详情页） */
+        .level-tabs {
+            display: flex; gap: 6px; margin-bottom: 16px; flex-wrap: wrap;
+        }
+        .level-tab {
+            padding: 4px 14px; border-radius: 4px; cursor: pointer;
+            font-size: 13px; background: #002359; color: #a3a6ad;
+            border: 1px solid #003380; transition: all 0.15s;
+        }
+        .level-tab:hover { border-color: #00bb99; color: #e5eaf3; }
+        .level-tab.active { background: #00bb99; color: #001535; border-color: #00bb99; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>MWI Market Tracker</h1>
+        <div class="actions">
+            <span id="lastUpdate"></span>
+            <button class="btn" id="collectBtn" onclick="manualCollect()">手动采集</button>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="search-bar">
+            <input type="text" id="searchInput" placeholder="搜索物品（支持中英文，如：铜矿、copper、牛奶 ...）" oninput="onSearch()">
+        </div>
+
+        <div class="tabs">
+            <div class="tab active" data-tab="market" onclick="switchTab('market')">市场总览</div>
+            <div class="tab" data-tab="changes" onclick="switchTab('changes')">涨跌排行</div>
+        </div>
+
+        <!-- 图表详情 -->
+        <div id="detailView" style="display:none;">
+            <span class="back-link" onclick="hideDetail()">&larr; 返回列表</span>
+            <div class="chart-section">
+                <div class="chart-title" id="chartTitle"></div>
+                <div class="level-tabs" id="levelTabs"></div>
+                <div id="priceChart"></div>
+            </div>
+            <div class="chart-section">
+                <div class="chart-title">成交量</div>
+                <div id="volumeChart"></div>
+            </div>
+        </div>
+
+        <!-- 市场总览 -->
+        <div id="marketView">
+            <div class="table-section">
+                <table>
+                    <thead>
+                        <tr>
+                            <th onclick="sortTable('item_hrid')" style="min-width:220px">物品</th>
+                            <th onclick="sortTable('ask')">卖价 (Ask)</th>
+                            <th onclick="sortTable('bid')">买价 (Bid)</th>
+                            <th onclick="sortTable('price')">成交价</th>
+                            <th onclick="sortTable('volume')">成交量</th>
+                        </tr>
+                    </thead>
+                    <tbody id="marketBody"></tbody>
+                </table>
+            </div>
+            <div class="pagination" id="marketPagination"></div>
+        </div>
+
+        <!-- 涨跌排行 -->
+        <div id="changesView" style="display:none;">
+            <div class="table-section">
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="min-width:220px">物品</th>
+                            <th>当前价</th>
+                            <th>前次价</th>
+                            <th onclick="sortChanges('change')">涨跌额</th>
+                            <th onclick="sortChanges('pct')">涨跌幅</th>
+                        </tr>
+                    </thead>
+                    <tbody id="changesBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+<script>
+// ========== 状态 ==========
+let zhMap = {};
+let marketData = [];
+let changesData = [];
+let currentTab = "market";
+let sortKey = "item_hrid";
+let sortAsc = true;
+let changesSortKey = "pct";
+let changesSortAsc = false;
+let page = 1;
+const PAGE_SIZE = 50;
+
+// 当前详情页状态
+let detailItem = null;
+let detailLevel = 0;
+
+// ========== 工具 ==========
+function hridToIconId(hrid) {
+    return hrid.replace("/items/", "");
+}
+
+function getZh(hrid) {
+    if (zhMap[hrid]) return zhMap[hrid].zh;
+    return null;
+}
+
+function getEn(hrid) {
+    if (zhMap[hrid]) return zhMap[hrid].en;
+    return hrid.replace("/items/", "").replaceAll("_", " ");
+}
+
+function displayName(hrid) {
+    return getZh(hrid) || getEn(hrid);
+}
+
+function itemCellHtml(hrid, level) {
+    const iconId = hridToIconId(hrid);
+    const zh = getZh(hrid);
+    const en = getEn(hrid);
+    // 主列表只显示基础物品，点击进入详情
+    const lvl = level > 0 ? `<span class="level-badge">+${level}</span>` : "";
+    return `
+        <div class="item-cell" onclick="showDetail('${hrid}', ${level})">
+            <svg class="item-icon"><use href="/static/items.svg#${iconId}"></use></svg>
+            <div class="item-names">
+                <span class="item-zh">${zh || en}${lvl}</span>
+                ${zh ? `<span class="item-en">${en}</span>` : ""}
+            </div>
+        </div>`;
+}
+
+function fmt(n) {
+    if (n == null) return "-";
+    return n.toLocaleString();
+}
+
+function pct(newVal, oldVal) {
+    if (!oldVal || !newVal) return null;
+    return (newVal - oldVal) / oldVal * 100;
+}
+
+// 获取某物品所有可用的强化等级
+function getItemLevels(hrid) {
+    const levels = new Set();
+    marketData.forEach(d => {
+        if (d.item_hrid === hrid) levels.add(d.level);
+    });
+    return Array.from(levels).sort((a, b) => a - b);
+}
+
+// ========== 数据加载 ==========
+async function loadZhMap() {
+    const res = await fetch("/static/zh-cn.json");
+    zhMap = await res.json();
+}
+
+async function loadLatest() {
+    const res = await fetch("/api/latest");
+    const json = await res.json();
+    if (json.timestamp) {
+        document.getElementById("lastUpdate").textContent = "更新: " + json.timestamp;
+    }
+    marketData = json.data || [];
+    page = 1;
+    renderMarket();
+}
+
+async function loadChanges() {
+    const res = await fetch("/api/changes");
+    changesData = await res.json();
+    changesData.forEach(d => {
+        d.change = (d.new_price && d.old_price) ? d.new_price - d.old_price : null;
+        d.pct = pct(d.new_price, d.old_price);
+    });
+    renderChanges();
+}
+
+async function loadHistory(itemHrid, level) {
+    const res = await fetch(`/api/history?item=${encodeURIComponent(itemHrid)}&level=${level}`);
+    return await res.json();
+}
+
+async function manualCollect() {
+    const btn = document.getElementById("collectBtn");
+    btn.disabled = true;
+    btn.textContent = "采集中...";
+    await fetch("/api/collect");
+    btn.disabled = false;
+    btn.textContent = "手动采集";
+    loadLatest();
+    loadChanges();
+}
+
+// ========== 渲染 ==========
+function renderMarket() {
+    const keyword = document.getElementById("searchInput").value.toLowerCase();
+
+    // 只显示 level 0 的物品
+    let filtered = marketData.filter(d => d.level === 0);
+
+    if (keyword) {
+        filtered = filtered.filter(d => {
+            const en = getEn(d.item_hrid).toLowerCase();
+            const zh = (getZh(d.item_hrid) || "").toLowerCase();
+            const hrid = d.item_hrid.toLowerCase();
+            return en.includes(keyword) || zh.includes(keyword) || hrid.includes(keyword);
+        });
+    }
+
+    filtered.sort((a, b) => {
+        let va = a[sortKey], vb = b[sortKey];
+        if (sortKey === "item_hrid") { va = displayName(va); vb = displayName(vb); }
+        if (va == null) va = sortAsc ? Infinity : -Infinity;
+        if (vb == null) vb = sortAsc ? Infinity : -Infinity;
+        if (typeof va === "string") return sortAsc ? va.localeCompare(vb, "zh") : vb.localeCompare(va, "zh");
+        return sortAsc ? va - vb : vb - va;
+    });
+
+    const total = filtered.length;
+    const totalPages = Math.ceil(total / PAGE_SIZE) || 1;
+    if (page > totalPages) page = totalPages;
+    const start = (page - 1) * PAGE_SIZE;
+    const pageData = filtered.slice(start, start + PAGE_SIZE);
+
+    const tbody = document.getElementById("marketBody");
+    if (pageData.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">暂无数据</td></tr>';
+    } else {
+        tbody.innerHTML = pageData.map(d => {
+            // 检查是否有强化版本
+            const levels = getItemLevels(d.item_hrid);
+            const hasEnhanced = levels.length > 1;
+            const enhanceHint = hasEnhanced ? `<span style="color:#a3a6ad;font-size:11px;margin-left:4px;">(+${levels[levels.length-1]})</span>` : "";
+            const iconId = hridToIconId(d.item_hrid);
+            const zh = getZh(d.item_hrid);
+            const en = getEn(d.item_hrid);
+            return `
+            <tr>
+                <td>
+                    <div class="item-cell" onclick="showDetail('${d.item_hrid}', 0)">
+                        <svg class="item-icon"><use href="/static/items.svg#${iconId}"></use></svg>
+                        <div class="item-names">
+                            <span class="item-zh">${zh || en}${enhanceHint}</span>
+                            ${zh ? `<span class="item-en">${en}</span>` : ""}
+                        </div>
+                    </div>
+                </td>
+                <td>${fmt(d.ask)}</td>
+                <td>${fmt(d.bid)}</td>
+                <td>${fmt(d.price)}</td>
+                <td>${fmt(d.volume)}</td>
+            </tr>`;
+        }).join("");
+    }
+
+    document.getElementById("marketPagination").innerHTML = `
+        <button class="btn" onclick="goPage(-1)" ${page <= 1 ? "disabled" : ""}>上一页</button>
+        <span>${page} / ${totalPages}（共 ${total} 项）</span>
+        <button class="btn" onclick="goPage(1)" ${page >= totalPages ? "disabled" : ""}>下一页</button>
+    `;
+}
+
+function renderChanges() {
+    // 涨跌排行也只显示 level 0
+    let data = changesData.filter(d => d.pct != null && d.level === 0);
+    data.sort((a, b) => {
+        let va = a[changesSortKey] ?? 0, vb = b[changesSortKey] ?? 0;
+        return changesSortAsc ? va - vb : vb - va;
+    });
+
+    const tbody = document.getElementById("changesBody");
+    if (data.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">需要至少两次采集才能计算涨跌</td></tr>';
+        return;
+    }
+    tbody.innerHTML = data.slice(0, 100).map(d => {
+        const cls = (d.change || 0) >= 0 ? "up" : "down";
+        const arrow = (d.change || 0) >= 0 ? "+" : "";
+        return `
+        <tr>
+            <td>${itemCellHtml(d.item_hrid, 0)}</td>
+            <td>${fmt(d.new_price)}</td>
+            <td>${fmt(d.old_price)}</td>
+            <td class="${cls}">${arrow}${fmt(d.change)}</td>
+            <td class="${cls}">${arrow}${d.pct.toFixed(2)}%</td>
+        </tr>`;
+    }).join("");
+}
+
+// ========== 图表 ==========
+let priceChart = null;
+let volumeChart = null;
+
+async function showDetail(itemHrid, level) {
+    detailItem = itemHrid;
+    detailLevel = level;
+
+    document.getElementById("detailView").style.display = "block";
+    document.getElementById("marketView").style.display = "none";
+    document.getElementById("changesView").style.display = "none";
+
+    const zh = getZh(itemHrid);
+    const en = getEn(itemHrid);
+    const name = zh ? `${zh} (${en})` : en;
+    const iconId = hridToIconId(itemHrid);
+    document.getElementById("chartTitle").innerHTML = `
+        <svg class="icon-lg"><use href="/static/items.svg#${iconId}"></use></svg>
+        ${name}`;
+
+    // 渲染强化等级标签
+    const levels = getItemLevels(itemHrid);
+    const tabsEl = document.getElementById("levelTabs");
+    if (levels.length > 1) {
+        tabsEl.innerHTML = levels.map(lv =>
+            `<div class="level-tab ${lv === level ? 'active' : ''}" onclick="switchLevel(${lv})">${lv === 0 ? '基础' : '+' + lv}</div>`
+        ).join("");
+        tabsEl.style.display = "flex";
+    } else {
+        tabsEl.style.display = "none";
+    }
+
+    await renderChart(itemHrid, level);
+}
+
+async function switchLevel(level) {
+    detailLevel = level;
+    document.querySelectorAll(".level-tab").forEach(t => {
+        const lv = t.textContent === "基础" ? 0 : parseInt(t.textContent.replace("+", ""));
+        t.classList.toggle("active", lv === level);
+    });
+    await renderChart(detailItem, level);
+}
+
+async function renderChart(itemHrid, level) {
+    const history = await loadHistory(itemHrid, level);
+
+    if (!priceChart) priceChart = echarts.init(document.getElementById("priceChart"));
+    if (!volumeChart) volumeChart = echarts.init(document.getElementById("volumeChart"));
+
+    const times = history.map(h => h.timestamp.slice(5, 16));
+    const asks = history.map(h => h.ask);
+    const bids = history.map(h => h.bid);
+    const prices = history.map(h => h.price);
+    const volumes = history.map(h => h.volume || 0);
+
+    priceChart.setOption({
+        tooltip: { trigger: "axis" },
+        legend: { data: ["卖价", "买价", "成交价"], textStyle: { color: "#cfd3dc" } },
+        grid: { left: 70, right: 20, top: 40, bottom: 30 },
+        xAxis: { type: "category", data: times, axisLabel: { color: "#a3a6ad" } },
+        yAxis: { type: "value", axisLabel: { color: "#a3a6ad" }, splitLine: { lineStyle: { color: "#003380" } } },
+        series: [
+            { name: "卖价", type: "line", data: asks, smooth: true, lineStyle: { color: "#f56c6c" }, itemStyle: { color: "#f56c6c" }, symbol: "none" },
+            { name: "买价", type: "line", data: bids, smooth: true, lineStyle: { color: "#67c23a" }, itemStyle: { color: "#67c23a" }, symbol: "none" },
+            { name: "成交价", type: "line", data: prices, smooth: true, lineStyle: { color: "#00bb99", width: 2 }, itemStyle: { color: "#00bb99" }, symbol: "none" },
+        ],
+        backgroundColor: "transparent"
+    }, true);
+
+    volumeChart.setOption({
+        tooltip: { trigger: "axis" },
+        grid: { left: 70, right: 20, top: 10, bottom: 30 },
+        xAxis: { type: "category", data: times, axisLabel: { color: "#a3a6ad" } },
+        yAxis: { type: "value", axisLabel: { color: "#a3a6ad" }, splitLine: { lineStyle: { color: "#003380" } } },
+        series: [
+            { type: "bar", data: volumes, itemStyle: { color: "#00bb9980" } }
+        ],
+        backgroundColor: "transparent"
+    }, true);
+}
+
+function hideDetail() {
+    document.getElementById("detailView").style.display = "none";
+    detailItem = null;
+    if (currentTab === "market") document.getElementById("marketView").style.display = "block";
+    else document.getElementById("changesView").style.display = "block";
+}
+
+// ========== 交互 ==========
+function switchTab(tab) {
+    currentTab = tab;
+    document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === tab));
+    document.getElementById("detailView").style.display = "none";
+    document.getElementById("marketView").style.display = tab === "market" ? "block" : "none";
+    document.getElementById("changesView").style.display = tab === "changes" ? "block" : "none";
+}
+
+function sortTable(key) {
+    if (sortKey === key) sortAsc = !sortAsc;
+    else { sortKey = key; sortAsc = true; }
+    page = 1;
+    renderMarket();
+}
+
+function sortChanges(key) {
+    if (changesSortKey === key) changesSortAsc = !changesSortAsc;
+    else { changesSortKey = key; changesSortAsc = false; }
+    renderChanges();
+}
+
+function onSearch() { page = 1; renderMarket(); }
+
+function goPage(delta) {
+    page += delta;
+    renderMarket();
+    window.scrollTo(0, 0);
+}
+
+window.addEventListener("resize", () => {
+    priceChart && priceChart.resize();
+    volumeChart && volumeChart.resize();
+});
+
+// ========== 初始化 ==========
+(async () => {
+    await loadZhMap();
+    loadLatest();
+    loadChanges();
+})();
+</script>
+</body>
+</html>
